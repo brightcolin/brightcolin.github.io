@@ -1,5 +1,7 @@
 # Colin’s personal website
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 An English-first, bilingual personal website for research and open-source audiences. Original HTML/CSS design, inspired by the information hierarchy of academic homepages and the project presentation of developer portfolios. No template source code or third-party artwork is copied.
 
 Website: https://brightcolin.github.io/ · Chinese: https://brightcolin.github.io/zh/
