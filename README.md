@@ -2,6 +2,8 @@
 
 An English-first, bilingual personal website for research and open-source audiences. Original HTML/CSS design, inspired by the information hierarchy of academic homepages and the project presentation of developer portfolios. No template source code or third-party artwork is copied.
 
+Website: https://brightcolin.github.io/ · Chinese: https://brightcolin.github.io/zh/
+
 ## Local preview
 
 Requires Node.js 22 or later. No dependency installation is needed.
@@ -26,15 +28,15 @@ Run `node build.mjs` after edits. `node check.mjs` checks local links, anchors, 
 
 ## GitHub Pages
 
-Use a new repository named `brightcolin.github.io` for the root personal website. The existing `brightcolin/brightcolin` repository is the GitHub Profile README and should remain separate.
+The website source lives in `brightcolin/brightcolin.github.io`. The existing `brightcolin/brightcolin` repository is the GitHub Profile README and remains separate.
 
-1. Authenticate GitHub CLI (`gh auth login`) or use the GitHub website.
-2. Create the public `brightcolin.github.io` repository and push this project’s source to `main`.
-3. Under repository Settings → Pages, choose **GitHub Actions** as the build source.
-4. Run the included **Deploy personal website to GitHub Pages** workflow, or push to `main`.
-5. Wait for the workflow to succeed before treating `https://brightcolin.github.io/` as live.
+1. Edit `content.mjs` for copy or `assets/style.css` for presentation.
+2. Run `node build.mjs` and `node check.mjs` locally.
+3. Commit the source changes and push to `main`.
+4. The **Deploy personal website to GitHub Pages** workflow publishes the update automatically.
+5. Check the repository’s Actions tab for the deployment result. A manual run is also available.
 
-The workflow builds the site and checks internal links before deploying `dist/`. A custom domain can be added later. Hosting has not been provisioned by this local project.
+Pages is configured to use GitHub Actions. The workflow builds the site and checks internal links before deploying `dist/`. A custom domain can be added later. The website needs no separately managed server or database.
 
 ## Content decisions
 
