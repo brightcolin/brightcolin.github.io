@@ -1,0 +1,11 @@
+{
+  "name": "colin-personal-site",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node check.mjs",
+    "start": "node serve.mjs"
+  }
+}
