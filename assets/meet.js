@@ -7,6 +7,13 @@
   const $ = (name) => app.querySelector(`[data-${name}]`);
   const status = (message, error = false) => { $('status').textContent = message; $('status').dataset.error = String(error); };
   let allSlots = [], selected = null, currentToken = '', changing = false, pending = null, generation = 0;
+  let settings = null, weekStart = '', firstWeek = '', lastDay = '', locked = false, drag = null, pointerEnded = -1000;
+  let slotIndex = new Map();
+  const mins = (time) => Number(time.slice(0,2)) * 60 + Number(time.slice(3));
+  const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`;
+  const plusDays = (day,n) => { const d = new Date(day + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); };
+  const monday = (day) => plusDays(day,-((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7));
+  const key = (s) => `${s.date}/${s.meal}/${s.start}/${s.duration}`;
   const api = app.dataset.api;
   const tokenFromHash = new URLSearchParams(location.hash.slice(1)).get('booking');
   if (/^[a-f0-9]{64}$/.test(tokenFromHash || '')) currentToken = tokenFromHash;
@@ -37,46 +44,156 @@
     const end = `${String(Math.floor(endMins/60)).padStart(2,'0')}:${String(endMins%60).padStart(2,'0')}`;
     return `${date} · ${s.start}–${end} · ${s.meal === 'lunch' ? t('Lunch','午饭') : t('Dinner','晚饭')}`;
   }
-  function button(label, action, parent) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-pressed','false'); b.addEventListener('click', action); parent.append(b); return b;
-  }
   function lockForm(locked) {
-    for (const field of $('picker').querySelectorAll('select,input,textarea,button')) field.disabled = locked;
+    setLocked(locked);
     // An uncertain submission can only retry the same captured request.
     $('submit').disabled = false;
   }
-  function showTimes(day) {
-    selected = null; $('booking').hidden = true; $('slots').replaceChildren();
-    for (const b of $('dates').children) b.setAttribute('aria-pressed', String(b.dataset.date === day));
-    for (const s of allSlots.filter((s) => s.date === day)) {
-      const b = button(`${s.start}–${s.end}`, () => {
-        selected = s;
-        for (const other of $('slots').children) other.setAttribute('aria-pressed',String(other === b));
-        $('selection').textContent = displaySlot(s); $('booking').hidden = false;
-        $('booking').querySelector('.meal-fields').hidden = changing;
-        $('booking').querySelector('.meal-consent').hidden = changing;
-        for (const field of $('booking').querySelectorAll('input,textarea')) field.disabled = changing;
-        $('submit').textContent = changing ? t('Confirm new time','确认新时间') : t('Confirm this time','确认预约');
-      }, $('slots'));
+  function setLocked(value) {
+    locked = value;
+    for (const field of $('picker').querySelectorAll('input,textarea,button')) {
+      field.disabled = locked || (field.hasAttribute('data-timecell') && field.dataset.start !== 'true') || (changing && field.matches('input,textarea'));
     }
+    navigation();
+  }
+  function navigation() {
+    $('prev').disabled = locked || weekStart <= firstWeek;
+    $('next').disabled = locked || plusDays(weekStart,7) > lastDay;
+  }
+  function clearSelection() {
+    selected = null; drag = null; $('booking').hidden = true;
+    $('calendar').querySelectorAll('.meal-draft').forEach(el => el.remove());
+    $('calendar').querySelectorAll('[aria-pressed=true]').forEach(el => el.setAttribute('aria-pressed','false'));
+  }
+  function paint(s, invalid = false) {
+    $('calendar').querySelectorAll('.meal-draft').forEach(el => el.remove());
+    $('calendar').querySelectorAll('[data-day]').forEach(col => {
+      if (col.dataset.day !== s.date || col.dataset.meal !== s.meal) return;
+      const offset = (mins(s.start) - Number(col.dataset.begin)) / 15;
+      const count = Number(col.dataset.count), visibleStart = Math.max(0,offset), visibleEnd = Math.min(count,offset+s.duration/15);
+      if (visibleEnd <= visibleStart) return;
+      const block = document.createElement('div'); block.className = 'meal-draft'; block.dataset.invalid = String(invalid);
+      block.style.top = `${visibleStart/count*100}%`; block.style.height = `${(visibleEnd-visibleStart)/count*100}%`;
+      const label = document.createElement('strong'); label.textContent = `${s.start}–${hhmm(mins(s.start)+s.duration)}`;
+      const note = document.createElement('span'); note.textContent = invalid ? t('Unavailable','不可约') : t('Meal together','一起吃饭');
+      block.append(label,note); col.append(block);
+    });
+  }
+  function choose(s) {
+    if (locked || !s) return;
+    selected = s; paint(s);
+    for (const cell of $('calendar').querySelectorAll('[data-timecell]')) cell.setAttribute('aria-pressed',String(cell.dataset.date === s.date && cell.dataset.meal === s.meal && Number(cell.dataset.minute) === mins(s.start)));
+    $('selection').textContent = displaySlot(s); $('booking').hidden = false;
+    $('booking').querySelector('.meal-fields').hidden = changing;
+    $('booking').querySelector('.meal-consent').hidden = changing;
+    for (const field of $('booking').querySelectorAll('input,textarea')) field.disabled = changing;
+    $('submit').textContent = changing ? t('Confirm new time','确认新时间') : t('Confirm this time','确认约饭');
+    status(t('Time selected. Add your details below.','时间选好了，在下方留下见面信息。'));
+  }
+  function slotAt(date,meal,start,duration) { return slotIndex.get(key({date,meal,start:hhmm(start),duration})); }
+  function wireColumn(col) {
+    col.addEventListener('pointerdown',e => {
+      if (locked || (e.button !== undefined && e.button !== 0)) return;
+      const cell = e.target.closest('[data-timecell]');
+      if (!cell || cell.disabled) return;
+      e.preventDefault();
+      clearSelection();
+      const anchor = Number(cell.dataset.minute);
+      drag = { col, pointerId:e.pointerId, anchor, duration:60, slot:slotAt(col.dataset.day,col.dataset.meal,anchor,60) || slotAt(col.dataset.day,col.dataset.meal,anchor,90) };
+      if (col.setPointerCapture) col.setPointerCapture(e.pointerId);
+      if (drag.slot) paint(drag.slot);
+    });
+    col.addEventListener('pointermove',e => {
+      if (!drag || drag.col !== col || drag.pointerId !== e.pointerId) return;
+      e.preventDefault();
+      const rect = col.getBoundingClientRect();
+      if (!rect.height) return;
+      const row = Math.floor((e.clientY - rect.top) / rect.height * Number(col.dataset.count));
+      const at = Number(col.dataset.begin) + row*15;
+      const length = at < drag.anchor ? drag.anchor+15-at : at+15-drag.anchor;
+      const duration = length >= 75 ? 90 : 60;
+      const start = at < drag.anchor ? drag.anchor+15-duration : drag.anchor;
+      const candidate = {date:col.dataset.day,meal:col.dataset.meal,start:hhmm(Math.max(0,start)),duration};
+      const inColumn = e.clientX >= rect.left && e.clientX <= rect.right && at >= Number(col.dataset.begin) && at < Number(col.dataset.end);
+      drag.slot = inColumn ? slotIndex.get(key(candidate)) : null;
+      paint(candidate,!drag.slot);
+    });
+    col.addEventListener('pointerup',e => {
+      if (!drag || drag.col !== col || drag.pointerId !== e.pointerId) return;
+      const s = drag.slot; drag = null; pointerEnded = performance.now();
+      if (col.hasPointerCapture?.(e.pointerId)) col.releasePointerCapture(e.pointerId);
+      if (s) choose(s); else { clearSelection(); status(t('That range is unavailable. Drag within a green area.','这段时间不可约，请在绿色区域里重新拖动。'),true); }
+    });
+    col.addEventListener('pointercancel',() => { if(drag?.col === col) clearSelection(); });
+    col.addEventListener('lostpointercapture',() => { if(drag?.col === col) clearSelection(); });
+    col.addEventListener('click',e => {
+      if (locked || (e.detail > 0 && performance.now()-pointerEnded < 350)) return;
+      const cell = e.target.closest('[data-timecell]'); if(!cell || cell.disabled) return;
+      const m = Number(cell.dataset.minute);
+      choose(slotAt(col.dataset.day,col.dataset.meal,m,60) || slotAt(col.dataset.day,col.dataset.meal,m,90));
+    });
+    col.addEventListener('keydown',e => {
+      if (locked) return;
+      if(e.key === 'Escape') { clearSelection(); return; }
+      if (!selected || selected.date !== col.dataset.day || selected.meal !== col.dataset.meal || !['ArrowDown','ArrowUp'].includes(e.key)) return;
+      e.preventDefault();
+      const s = slotAt(selected.date,selected.meal,mins(selected.start),e.key === 'ArrowDown' ? 90 : 60);
+      if(s) choose(s); else status(t('That duration is not available here.','这里没有足够的空闲时间。'),true);
+    });
+  }
+  function renderWeek() {
+    const calendar = $('calendar'); calendar.replaceChildren();
+    const fmt = options => new Intl.DateTimeFormat(zh?'zh-CN':'en',{...options,timeZone:'UTC'});
+    const dates = Array.from({length:7},(_,i)=>plusDays(weekStart,i));
+    $('week-label').textContent = `${fmt({month:'short',day:'numeric'}).format(new Date(weekStart+'T12:00:00Z'))} — ${fmt({month:'short',day:'numeric'}).format(new Date(dates[6]+'T12:00:00Z'))}`;
+    const head = document.createElement('div'); head.className = 'meal-week-head'; head.append(document.createElement('div'));
+    for(const date of dates) {
+      const el = document.createElement('div'); el.className = 'meal-day-heading';
+      el.textContent = fmt({weekday:'short'}).format(new Date(date+'T12:00:00Z'));
+      const day = document.createElement('strong'); day.textContent = String(Number(date.slice(-2))); el.append(day); head.append(el);
+    }
+    calendar.append(head);
+    for(const meal of ['lunch','dinner']) {
+      const window = settings[meal], begin = mins(window.start), end = mins(window.end), count = (end-begin)/15;
+      if(meal === 'dinner') { const gap = document.createElement('div'); gap.className = 'meal-band-separator'; gap.textContent = t('Afternoon hours hidden','非饭点时段已收起'); calendar.append(gap); }
+      const label = document.createElement('div'); label.className = 'meal-period-label'; label.textContent = meal === 'lunch' ? t('Lunch','午饭') : t('Dinner','晚饭');
+      const range = document.createElement('small'); range.textContent = `${window.start}–${window.end}`; label.append(range); calendar.append(label);
+      const band = document.createElement('div'); band.className = 'meal-band';
+      const axis = document.createElement('div'); axis.className = 'meal-time-axis';
+      for(let m=begin;m<end;m+=30) { const mark = document.createElement('span'); mark.textContent = hhmm(m); mark.style.top = `${(m-begin)/(end-begin)*100}%`; if(m === begin) mark.style.transform = 'none'; axis.append(mark); } band.append(axis);
+      for(const date of dates) {
+        const col = document.createElement('div'); col.className = 'meal-day-column'; Object.assign(col.dataset,{day:date,meal,begin:String(begin),end:String(end),count:String(count)});
+        const available = allSlots.filter(s=>s.date === date && s.meal === meal);
+        for(let m=begin;m<end;m+=15) {
+          const cell = document.createElement('button'); cell.type='button'; cell.className='meal-cell';
+          const canStart = !!(slotAt(date,meal,m,60) || slotAt(date,meal,m,90));
+          Object.assign(cell.dataset,{timecell:'',date,meal,minute:String(m),free:String(available.some(s=>mins(s.start)<=m && mins(s.start)+s.duration>=m+15)),start:String(canStart)});
+          cell.disabled = locked || !canStart; cell.setAttribute('aria-pressed','false');
+          cell.setAttribute('aria-label',`${date} ${hhmm(m)} ${meal === 'lunch'?t('Lunch','午饭'):t('Dinner','晚饭')} · ${canStart?t('Select time','选择时间'):t('Unavailable start','不可作为开始时间')}`);
+          col.append(cell);
+        }
+        wireColumn(col); band.append(col);
+      }
+      calendar.append(band);
+    }
+    navigation(); if(selected) paint(selected);
   }
   async function loadSlots() {
     const ownGeneration = ++generation;
-    $('booking').hidden = true; $('dates').replaceChildren(); $('slots').replaceChildren(); selected = null;
+    clearSelection(); $('picker').hidden = true;
     status(t('Checking available meal times…','正在查询可约饭的时间……'));
     try {
-      const filter = { meal: $('meal').value, duration: Number($('duration').value) };
-      const result = changing ? await request('options', { ...filter, token: currentToken }) : await request(`availability?${new URLSearchParams(filter)}`);
+      const filters = ['lunch','dinner'].flatMap(meal=>[60,90].map(duration=>({meal,duration})));
+      const results = await Promise.all(filters.map(filter=>changing ? request('options',{...filter,token:currentToken}) : request(`availability?${new URLSearchParams(filter)}`)));
       if (ownGeneration !== generation) return;
-      allSlots = result.slots; $('picker').hidden = false;
-      $('zone').textContent = t(`All times: ${result.timezone}. Book at least ${result.noticeHours} hours ahead.`, `时间均为 ${result.timezone}，至少提前 ${result.noticeHours} 小时预约。`);
-      for (const day of [...new Set(allSlots.map((s) => s.date))]) {
-        const d = new Date(day + 'T12:00:00Z');
-        const b = button(new Intl.DateTimeFormat(zh ? 'zh-CN' : 'en', { weekday: 'short', timeZone: 'UTC' }).format(d), () => showTimes(day), $('dates'));
-        b.dataset.date = day; const n = document.createElement('strong'); n.textContent = `${d.getUTCMonth()+1}/${d.getUTCDate()}`; b.append(n);
-      }
-      if (allSlots.length) { status(t('Choose a date, then a time.','选择日期，再选一个时间。')); showTimes(allSlots[0].date); }
-      else status(t('No meal times are available in this window. Try another meal or contact me by email.', '这段时间没有可预约的饭点，可以换个饭点或发邮件联系。'));
+      settings = results[0]; allSlots = results.flatMap(r=>r.slots); slotIndex = new Map(allSlots.map(s=>[key(s),s]));
+      $('zone').textContent = t(`${settings.timezone} · Book at least ${settings.noticeHours} hours ahead.`,`${settings.timezone} · 至少提前 ${settings.noticeHours} 小时预约。`);
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:settings.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(Date.now())).map(p=>[p.type,p.value]));
+      const today = `${parts.year}-${parts.month}-${parts.day}`;
+      firstWeek = monday(today); lastDay = plusDays(today,settings.horizonDays-1);
+      const first = allSlots.map(s=>s.date).sort()[0]; weekStart = first ? monday(first) : firstWeek;
+      locked = false; renderWeek(); $('picker').hidden = false;
+      status(allSlots.length ? t('Drag a green area to choose your time.','在绿色区域里拖动，选一个见面的时间。') : t('No meal times are currently available. You can reach me by email.','这段时间没有可预约的饭点，欢迎发邮件联系。'));
     } catch (e) { if (ownGeneration === generation) status(e.message,true); }
   }
   function link() { const url = new URL(location.href); url.search = ''; url.hash = 'booking=' + currentToken; return url.href; }
@@ -97,7 +214,7 @@
     status(confirmed ? t('Confirmed and saved in Colin’s calendar.','预约成功，已写入 Colin 的日历。') : cancelled ? t('The time has been released.','原来的时间已释放。') : t('The calendar update is not yet confirmed. Refresh status or cancel; do not book again.', '日历更新尚未确认。请刷新状态或取消，暂时不要重新预约。'));
   }
   async function refresh() { try { showResult(await request('lookup',{ token: currentToken })); } catch (e) { status(e.message,true); } }
-  $('meal').addEventListener('change',loadSlots); $('duration').addEventListener('change',loadSlots);
+  for(const [name,offset] of [['prev',-7],['next',7]]) $(name).addEventListener('click',()=>{ if(locked) return; clearSelection(); weekStart=plusDays(weekStart,offset); renderWeek(); });
   $('booking').addEventListener('submit', async (e) => {
     e.preventDefault(); if (!selected) return;
     $('submit').disabled = true;
