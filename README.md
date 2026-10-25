@@ -4,6 +4,27 @@
 
 An English-first, bilingual personal website for research and open-source audiences. Original HTML/CSS design, inspired by the information hierarchy of academic homepages and the project presentation of developer portfolios. No template source code or third-party artwork is copied.
 
+## Meal booking
+
+`/meet/` and `/zh/meet/` use the existing bilingual layout. `meet.mjs`,
+`assets/meet.css` and `assets/meet.js` provide the page and booking interaction.
+GitHub Pages hosts the frontend only. Set the repository Actions variable
+`BOOKING_API_ORIGIN` to the HTTPS origin of a separately deployed Smart Calendar
+service with its version 1 public meal API. Leave it empty to show “bookings are
+not open yet”; no sample availability or fake confirmations are published.
+
+Local build: set the environment variable `BOOKING_API_ORIGIN` before running
+`node build.mjs` (loopback HTTP is allowed for development). The backend must
+allow `https://brightcolin.github.io` in its CORS origins, own its Google OAuth
+authorization, and keep its data on persistent storage. API keys, OAuth tokens,
+visitor records and busy events never belong in this repository or build.
+
+Visitors get private fragment links to manage their own booking. There are no
+analytics or third-party scripts on the booking page; it sends no referrer and
+does not save form data in localStorage. Reminders notify Colin via Google
+Calendar; this version does not email visitors. See the backend's
+`MEAL_BOOKING.md` for deployment and operational limitations.
+
 Website: https://brightcolin.github.io/ · Chinese: https://brightcolin.github.io/zh/
 
 ## Local preview

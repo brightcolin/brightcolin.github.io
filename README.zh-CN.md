@@ -4,6 +4,24 @@
 
 面向科研交流与开源社区的个人网站，以英文为主，提供完整中文页面。内容包括当前科研方向、精选项目、教育背景、荣誉和简要个人介绍。
 
+## 约饭页面
+
+新增 `/meet/` 和 `/zh/meet/`，沿用现有中英模板与视觉样式，入口位于页脚。
+页面代码位于 `meet.mjs`、`assets/meet.css`、`assets/meet.js`。
+GitHub Pages 仅托管前端；实时查询空档、写入日历、取消和改期由独立部署的
+Smart Calendar 服务提供。后端需支持 v1 `/public/meals/*` 接口。
+
+在本仓库 Actions Variables 中填写 `BOOKING_API_ORIGIN`（后端 HTTPS origin）
+并重新运行部署。它是公开地址，不是密钥。保持为空时页面显示“预约尚未开放”，
+不会展示虚构空档或假装预约成功。本地开发可在构建前设置同名环境变量，允许
+loopback HTTP。后端 CORS 需允许 `https://brightcolin.github.io`。
+
+后端独立完成 Google OAuth，并使用持久化存储；不把任何密钥、Google Token、
+访客信息或原始日程写入本站仓库。私密管理链接使用 URL fragment，页面不发送
+referrer、不使用访问统计、不把表单资料保存进 localStorage。持有管理链接的人
+可以修改或取消相应预约。日历提醒通知 Colin，本版本不会自动给访客发送邮件。
+部署步骤与限制见后端的 `MEAL_BOOKING.md`。
+
 [英文主页](https://brightcolin.github.io/) · [中文主页](https://brightcolin.github.io/zh/)
 
 采用原创 HTML/CSS 布局，参考学术主页的信息组织方式与开发者作品集的项目展示方式。没有复制模板源码或第三方美术素材。
